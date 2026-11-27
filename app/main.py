@@ -1,6 +1,9 @@
 import logging
 import random
 import time
+import os
+
+
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
@@ -72,6 +75,12 @@ def log_request(response):
     return response
 
 
+# ---------- Fault injection ----------
+# با فایل‌های flag می‌شود خرابی را بدون ری‌استارت روشن/خاموش کرد
+def fault_on(name):
+    return os.path.exists(f"faults/{name}")
+
+
 # ---------- Endpoints ----------
 @app.route("/")
 def home():
@@ -87,7 +96,8 @@ def products():
 @app.route("/checkout")
 def checkout():
     time.sleep(random.uniform(0.1, 0.3))
-    if random.random() < 0.2:  # 20% failure
+    error_rate = 0.8 if fault_on("checkout_errors") else 0.2
+    if random.random() < error_rate:
         logger.error(
             "payment_failed",
             extra={"endpoint": "/checkout", "reason": "payment gateway timeout"},
@@ -99,7 +109,8 @@ def checkout():
 @app.route("/search")
 def search():
     with tracer.start_as_current_span("search_database"):
-        if random.random() < 0.3:  # 30% slow
+        slow_rate = 0.9 if fault_on("search_slow") else 0.3
+        if random.random() < slow_rate:  # slow
             delay = random.uniform(1, 3)
             logger.warning(
                 "slow_search",
